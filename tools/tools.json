@@ -1455,8 +1455,8 @@
       "versions": [
         {
           "any": {
-            "size": 1031329,
-            "sha256": "8a859a4d21836fdda7fb57bdd564e2d62f610fd5c0aaedff0e65d3217e883255",
+            "size": 922895,
+            "sha256": "94a46ef4f317d81d08496f45532b873989b231163cfbdb5ac06e2ba86518e9e9",
             "url": "https://github.com/pioarduino/registry/releases/download/0.0.1/contrib-piohome-3.4.4.tar.gz"
           },
           "name": "contrib-pioremote",
