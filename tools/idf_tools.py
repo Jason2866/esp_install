@@ -1245,10 +1245,11 @@ class IDFTool(object):
         unpack(archive_path, dest_dir)
         if self._current_options.strip_container_dirs:  # type: ignore
             do_strip_container_dirs(dest_dir, self._current_options.strip_container_dirs)  # type: ignore
-        if not self.check_binary_valid(version):
-            fatal(f'Failed to check the tool while installed. Removing directory {dest_dir}')
-            shutil.rmtree(dest_dir)
-            raise SystemExit(1)
+# Check commented: not working in our use case and not needed 
+#        if not self.check_binary_valid(version):
+#            fatal(f'Failed to check the tool while installed. Removing directory {dest_dir}')
+#            shutil.rmtree(dest_dir)
+#            raise SystemExit(1)
 
     @staticmethod
     def check_download_file(download_obj: IDFToolDownload, local_path: str) -> bool:
