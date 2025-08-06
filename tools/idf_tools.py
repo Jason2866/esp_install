@@ -759,12 +759,74 @@ def unpack(filename: str, destination: str) -> None:
 def splittype(url: str) -> Tuple[Optional[str], str]:
     """
     Splits given url into its type (e.g. https, file) and the rest.
+    
+    Args:
+        url: URL to split
+        
+    Returns:
+        Tuple of (scheme, data) where scheme is lowercase protocol name or None
     """
     match = re.match('([^/:]+):(.*)', url, re.DOTALL)
     if match:
         scheme, data = match.groups()
         return scheme.lower(), data
     return None, url
+
+def classify_ssl_error(exception: Exception) -> str:
+    """
+    Classifies SSL errors for better debugging output.
+    
+    Args:
+        exception: The exception to classify
+        
+    Returns:
+        String description of the error type
+    """
+    error_msg = str(exception).upper()
+    
+    if 'CERTIFICATE_VERIFY_FAILED' in error_msg:
+        return 'Certificate verification failed'
+    elif 'SSL_HANDSHAKE_FAILURE' in error_msg or 'HANDSHAKE_FAILURE' in error_msg:
+        return 'SSL handshake failure'
+    elif 'TIMEOUT' in error_msg:
+        return 'Connection timeout'
+    elif 'CONNECTION_RESET' in error_msg or 'CONNECTION RESET' in error_msg:
+        return 'Connection reset by peer'
+    elif 'HOSTNAME_MISMATCH' in error_msg:
+        return 'Hostname mismatch'
+    else:
+        return f'Unknown SSL error: {str(exception)[:50]}'
+
+def setup_mac_certificate_paths(ctx: ssl.SSLContext) -> ssl.SSLContext:
+    """
+    Add macOS specific certificate paths for better compatibility.
+    
+    This function attempts to load certificates from various macOS-specific
+    paths to improve SSL compatibility, especially with Homebrew installations.
+    
+    Args:
+        ctx: SSL context to enhance with additional certificate paths
+        
+    Returns:
+        Enhanced SSL context with additional certificate paths loaded
+    """
+    mac_cert_paths = [
+        '/System/Library/OpenSSL/certs/cert.pem',           # System OpenSSL
+        '/usr/local/etc/openssl/cert.pem',                  # Homebrew OpenSSL
+        '/opt/homebrew/etc/openssl@3/cert.pem',             # Homebrew M1/M2
+        '/etc/ssl/cert.pem'                                 # Generic Unix
+    ]
+    
+    for cert_path in mac_cert_paths:
+        if os.path.exists(cert_path):
+            try:
+                ctx.load_verify_locations(cert_path)
+                info(f"Loaded certificates from: {cert_path}")
+                break
+            except Exception as e:
+                warn(f"Failed to load {cert_path}: {e}")
+    
+    return ctx
 
 
 def urlretrieve_ctx(
