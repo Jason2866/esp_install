@@ -462,6 +462,126 @@ MrY=
 DL_CERT_DICT = {'dl.espressif.com': DIGICERT_ROOT_G2_CERT, 'github.com': DIGICERT_ROOT_CA_CERT}
 
 
+def create_esp_idf_ssl_context(url: str) -> ssl.SSLContext:
+    """
+    Creates ESP-IDF optimized SSL context with OpenSSL version detection.
+    
+    This function detects the SSL backend (LibreSSL vs OpenSSL) and creates
+    an appropriate SSL context with version-specific optimizations. It also
+    handles custom DigiCert certificates for known domains.
+    
+    Args:
+        url: The URL to create SSL context for
+        
+    Returns:
+        Configured SSL context optimized for the detected backend
+    """
+    ssl_version = ssl.OPENSSL_VERSION
+    ssl_version_info = ssl.OPENSSL_VERSION_INFO
+    
+    info(f"SSL Backend: {ssl_version} ({ssl_version_info})")
+    
+    # Create context based on detected SSL backend version
+    if "LibreSSL" in ssl_version:
+        # macOS LibreSSL - more conservative settings
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers('ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS')
+        ctx.check_hostname = True
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        info("LibreSSL-compatible configuration activated")
+        
+    elif ssl_version_info >= (3, 0, 0):
+        # OpenSSL 3.x - use modern features
+        ctx = ssl.create_default_context()
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        if hasattr(ssl, 'TLSVersion') and hasattr(ssl.TLSVersion, 'TLSv1_3'):
+            ctx.maximum_version = ssl.TLSVersion.TLSv1_3
+        info("OpenSSL 3.x modern configuration activated")
+        
+    elif ssl_version_info >= (1, 1, 1):
+        # OpenSSL 1.1.1+ - proven configuration
+        ctx = ssl.create_default_context()
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        info("OpenSSL 1.1.1+ standard configuration activated")
+        
+    else:
+        # Legacy OpenSSL - basic functionality
+        warn("Outdated OpenSSL version detected, using legacy mode")
+        ctx = ssl.create_default_context()
+        ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
+    
+    # ESP-IDF DigiCert Certificate Handling
+    parsed_url = urllib.parse.urlparse(url)
+    domain = parsed_url.netloc.lower()
+    
+    if domain in DL_CERT_DICT:
+        cert_data = DL_CERT_DICT[domain]
+        ctx.load_verify_locations(cadata=cert_data)
+        # Disable hostname checking for custom certificates
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        info(f"✓ Custom DigiCert certificate loaded for {domain}")
+    
+    return ctx
+
+
+def get_ssl_fallback_contexts(url: str) -> List[Tuple[str, ssl.SSLContext]]:
+    """
+    Creates fallback SSL contexts for different scenarios.
+    
+    This function provides multiple SSL context configurations that are tried
+    in order when downloading fails. This approach maximizes compatibility
+    across different systems and SSL configurations.
+    
+    Args:
+        url: The URL to create contexts for
+        
+    Returns:
+        List of tuples containing (config_name, ssl_context) pairs
+    """
+    contexts = []
+    
+    # 1. Primary context with backend detection
+    try:
+        primary_ctx = create_esp_idf_ssl_context(url)
+        contexts.append(('esp_idf_optimized', primary_ctx))
+    except Exception as e:
+        warn(f"Primary SSL context failed: {e}")
+    
+    # 2. Standard context with custom certificates
+    try:
+        standard_ctx = ssl.create_default_context()
+        parsed_url = urllib.parse.urlparse(url)
+        domain = parsed_url.netloc.lower()
+        
+        if domain in DL_CERT_DICT:
+            cert_data = DL_CERT_DICT[domain]
+            standard_ctx.load_verify_locations(cadata=cert_data)
+            standard_ctx.check_hostname = False
+        
+        contexts.append(('standard_with_custom_cert', standard_ctx))
+    except Exception as e:
+        warn(f"Standard SSL context with custom cert failed: {e}")
+    
+    # 3. System default without modifications
+    try:
+        system_ctx = ssl.create_default_context()
+        contexts.append(('system_default', system_ctx))
+    except Exception as e:
+        warn(f"System default SSL context failed: {e}")
+    
+    # 4. Unverified as last resort
+    try:
+        unverified_ctx = ssl.create_default_context()
+        unverified_ctx.check_hostname = False
+        unverified_ctx.verify_mode = ssl.CERT_NONE
+        contexts.append(('unverified', unverified_ctx))
+    except Exception as e:
+        warn(f"Unverified SSL context failed: {e}")
+    
+    return contexts
+
+
 def run_cmd_check_output(
     cmd: List[str], input_text: Optional[str] = None, extra_paths: Optional[List[str]] = None
 ) -> bytes:
