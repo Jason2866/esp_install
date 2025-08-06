@@ -914,7 +914,7 @@ def download(url: str, destination: str) -> Union[None, Exception]:
             if url.startswith('https'):
                 # HTTPS with specific SSL context
                 req = urllib.request.Request(url, headers={
-                    'User-Agent': 'ESP-IDF-Tools/Tasmota-PlatformIO-1.0'
+                    'User-Agent': 'pioarduino'
                 })
                 
                 with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
