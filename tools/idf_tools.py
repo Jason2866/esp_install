@@ -772,6 +772,7 @@ def splittype(url: str) -> Tuple[Optional[str], str]:
         return scheme.lower(), data
     return None, url
 
+
 def classify_ssl_error(exception: Exception) -> str:
     """
     Classifies SSL errors for better debugging output.
@@ -796,6 +797,7 @@ def classify_ssl_error(exception: Exception) -> str:
         return 'Hostname mismatch'
     else:
         return f'Unknown SSL error: {str(exception)[:50]}'
+
 
 def setup_mac_certificate_paths(ctx: ssl.SSLContext) -> ssl.SSLContext:
     """
@@ -886,7 +888,7 @@ def download(url: str, destination: str) -> Union[None, Exception]:
     """
     Download from given url and save into given destination.
     
-    This is the new urllib-based implementation with SSL backend detection (Option 5).
+    This is the new urllib-based implementation with SSL backend detection.
     It automatically detects the SSL backend (LibreSSL vs OpenSSL) and adapts the
     SSL configuration accordingly. Multiple fallback contexts are tried to maximize
     compatibility across different systems, especially macOS.
