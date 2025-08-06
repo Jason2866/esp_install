@@ -46,6 +46,8 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.parse
+import urllib.request
 from collections import OrderedDict
 from collections import namedtuple
 from json import JSONEncoder
@@ -540,11 +542,53 @@ def get_file_size_sha256(filename: str, block_size: int = 65536) -> Tuple[int, s
 def report_progress(count: int, block_size: int, total_size: int) -> None:
     """
     Prints progress (count * block_size * 100 / total_size) to stdout.
+    
+    Args:
+        count: Number of blocks downloaded
+        block_size: Size of each block in bytes  
+        total_size: Total file size in bytes
     """
-    percent = int(count * block_size * 100 / total_size)
-    percent = min(100, percent)
-    sys.stdout.write('\r%d%%' % percent)
-    sys.stdout.flush()
+    if total_size > 0:
+        percent = int(count * block_size * 100 / total_size)
+        percent = min(100, percent)
+        sys.stdout.write('\r%d%%' % percent)
+        sys.stdout.flush()
+
+def download_file_with_progress(response, destination: str) -> None:
+    """
+    Downloads file from urllib response object with progress display.
+    
+    This function replaces the manual implementation that was in the original
+    urlretrieve_ctx function, providing progress feedback during download.
+    
+    Args:
+        response: urllib response object to read from
+        destination: Local file path to save the downloaded content
+    """
+    with open(destination, 'wb') as f:
+        total_size = int(response.getheader('Content-Length', 0))
+        downloaded = 0
+        block_size = 8192
+        blocknum = 0
+        
+        if total_size > 0:
+            info(f'File size: {total_size} bytes')
+        
+        while True:
+            chunk = response.read(block_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            downloaded += len(chunk)
+            blocknum += 1
+            
+            # Show progress using report_progress() (compatible with original version)
+            if total_size > 0:
+                report_progress(blocknum, block_size, total_size)
+            else:
+                # Fallback for unknown file size
+                sys.stdout.write(f'\r{downloaded} bytes downloaded')
+                sys.stdout.flush()
 
 
 def mkdir_p(path: str) -> None:
@@ -659,49 +703,69 @@ def urlretrieve_ctx(
 def download(url: str, destination: str) -> Union[None, Exception]:
     """
     Download from given url and save into given destination.
+    
+    This is the new urllib-based implementation with SSL backend detection (Option 5).
+    It automatically detects the SSL backend (LibreSSL vs OpenSSL) and adapts the
+    SSL configuration accordingly. Multiple fallback contexts are tried to maximize
+    compatibility across different systems, especially macOS.
+    
+    Args:
+        url: URL to download from
+        destination: Local file path to save to
+        
+    Returns:
+        None on success, Exception object on failure
     """
     info(f'Downloading {url}')
     info(f'Destination: {destination}')
-    # Try multiple SSL configurations for better Mac compatibility
-    ssl_configs = []
-    # First try: Custom certificates for known sites
-    for site, cert in DL_CERT_DICT.items():
-        if site in url:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            ctx.load_verify_locations(cadata=cert)
-            ssl_configs.append(('custom_cert', ctx))
-            break
-    # Second try: Default SSL context
-    ssl_configs.append(('default', ssl.create_default_context()))
-    # Third try: Unverified SSL (less secure but might work on problematic systems)
-    unverified_ctx = ssl.create_default_context()
-    unverified_ctx.check_hostname = False
-    unverified_ctx.verify_mode = ssl.CERT_NONE
-    ssl_configs.append(('unverified', unverified_ctx))
-    # Fourth try: No SSL context (for HTTP or as last resort)
-    ssl_configs.append(('none', None))
     
+    # Get SSL fallback contexts for robust SSL handling
+    ssl_contexts = get_ssl_fallback_contexts(url)
     last_exception = None
-    for config_name, ctx in ssl_configs:
+    
+    for config_name, ctx in ssl_contexts:
         try:
-            if config_name != 'none':
-                info(f'Trying SSL configuration: {config_name}')
-            urlretrieve_ctx(url, destination, None, context=ctx)
-            if config_name != 'none':
-                info(f'Successfully downloaded using SSL configuration: {config_name}')
+            info(f'Trying SSL configuration: {config_name}')
+            
+            if url.startswith('https'):
+                # HTTPS with specific SSL context
+                req = urllib.request.Request(url, headers={
+                    'User-Agent': 'ESP-IDF-Tools/Tasmota-PlatformIO-1.0'
+                })
+                
+                with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
+                    download_file_with_progress(response, destination)
+            
+            elif url.startswith('http'):
+                # HTTP without SSL context
+                urllib.request.urlretrieve(url, destination, report_progress)
+            
+            else:
+                # Other protocols (file://, etc.)
+                urllib.request.urlretrieve(url, destination, report_progress)
+            
+            info(f'Successfully downloaded using SSL configuration: {config_name}')
             sys.stdout.write('\rDone\n')
+            sys.stdout.flush()
             return None
+            
         except Exception as e:
             last_exception = e
-            # Only show SSL-related errors for debugging
-            if 'SSL' in str(e) or 'CERTIFICATE' in str(e):
+            error_msg = str(e).upper()
+            
+            # Detect and log SSL-specific errors
+            if any(keyword in error_msg for keyword in ['SSL', 'CERTIFICATE', 'TLS', 'HANDSHAKE']):
                 warn(f'SSL configuration "{config_name}" failed: {str(e)[:100]}...')
+            elif 'TIMEOUT' in error_msg:
+                warn(f'Timeout with configuration "{config_name}"')
+            else:
+                warn(f'Configuration "{config_name}" failed: {str(e)[:100]}...')
             continue
     
-    # If all configurations failed, return the last exception
+    # If all configurations failed
     sys.stdout.flush()
+    error_msg = f"All SSL configurations failed. Last error: {last_exception}"
+    warn(error_msg)
     return last_exception
 
 
