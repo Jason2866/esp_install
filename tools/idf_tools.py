@@ -89,13 +89,16 @@ except ImportError:
     class WindowsError(OSError):  # type: ignore
         pass
 
+from platformio.project.config import ProjectConfig
 
 TOOLS_FILE = 'tools/tools.json'
 TOOLS_SCHEMA_FILE = 'tools/tools_schema.json'
 TOOLS_FILE_NEW = 'tools/tools.new.json'
 IDF_ENV_FILE = 'idf-env.json'
 TOOLS_FILE_VERSION = 3
-IDF_TOOLS_PATH_DEFAULT = os.path.join('~', '.platformio')
+PROJECT_CORE_DIR=ProjectConfig.get_instance().get("platformio", "core_dir")
+IDF_TOOLS_PATH=os.path.join(PROJECT_CORE_DIR)
+IDF_TOOLS_PATH_DEFAULT = IDF_TOOLS_PATH
 UNKNOWN_VERSION = 'unknown'
 SUBST_TOOL_PATH_REGEX = re.compile(r'\${TOOL_PATH}')
 VERSION_REGEX_REPLACE_DEFAULT = r'\1'
